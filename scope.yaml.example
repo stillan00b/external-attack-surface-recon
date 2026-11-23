@@ -1,0 +1,145 @@
+# =============================================================================
+# scope.yaml — authorization & scope definition
+# Copy to scope.yaml and fill in. The skill REFUSES to run any host-touching
+# phase until authorization.confirmed is true, the engagement window is current,
+# and at least one authorized target is present.
+# =============================================================================
+
+engagement:
+  id: "ENG-2026-0001"            # your engagement / ticket reference
+  client: "Example Corp"
+  operator: "Kepler"
+  # Public IP(s) your scans will come from. Goes in the report header so the
+  # client can tell your traffic from a real attack (most RoEs require it).
+  scanner_egress_ips: []
+  # Who to call if scanning causes impact — client contact AND your side.
+  # Printed by the gate and in the report header. See SKILL.md "Abort procedure".
+  emergency_contacts:
+    - "Client SOC: soc@example.com / +1-555-0100"
+    - "Engagement lead: lead@yourfirm.example / +1-555-0199"
+  # Active scanning only runs while "now" is within this window.
+  # ALWAYS include a timezone offset. 'Z' = UTC; for local Mountain Time use
+  # '-06:00' (MDT) / '-07:00' (MST). A timestamp with no offset is assumed UTC
+  # and the gate will warn, because a silent 6-7h shift could run you outside
+  # your authorized window.
+  window:
+    start: "2026-06-25T00:00:00Z"
+    end:   "2026-07-09T23:59:59Z"
+
+authorization:
+  # MUST be set to true by the operator after confirming the engagement is
+  # authorized in writing. The skill treats false/absent as "not authorized".
+  confirmed: false
+  # Free-text reference to the signed authorization (SOW/RoE doc, etc.).
+  reference: "RoE-ExampleCorp-2026.pdf"
+  # If scanning from cloud infra, record provider abuse-team notification here.
+  cloud_provider_notified: false
+  cloud_provider_notes: ""
+
+# --- Authorized targets -------------------------------------------------------
+# Discovery may surface more than this; ONLY assets matching in_scope are ever
+# actively scanned. Everything else is logged but never touched.
+in_scope:
+  # Bare domains only (no URLs/ports). "example.com" covers the apex AND all
+  # subdomains. "*.example.com" covers subdomains ONLY — list "example.com" too
+  # if the apex is in scope. A hostname is actively scanned only if every IP it
+  # resolves to is inside cidrs below.
+  domains:
+    - "example.com"
+    - "example.net"
+  cidrs:
+    - "203.0.113.0/24"
+    - "198.51.100.0/24"
+  # ASNs are used ONLY to look up announced prefixes in Phase 1. They never
+  # authorize IPs: announced is not authorized. Phase 1 reports prefixes outside
+  # cidrs as "announced-not-authorized"; confirm those with the client and add
+  # the approved ones to cidrs above.
+  asns:
+    - "AS64500"
+
+# --- Explicit exclusions (take precedence over in_scope) ----------------------
+out_of_scope:
+  domains:
+    - "blog.example.com"          # e.g., third-party-hosted, contractually excluded
+  cidrs:
+    - "203.0.113.200/29"          # e.g., shared-tenant range
+  hosts:
+    - "203.0.113.10"
+
+# --- Seeds for passive OSINT (Phase 1 may use these pre-confirmation) ----------
+seeds:
+  domains:
+    - "example.com"
+  brand_terms:                    # used by Phase 2 lookalike permutation
+    - "example"
+    - "examplecorp"
+
+# --- Rate / timing governance -------------------------------------------------
+# These are AGGREGATE ceilings. If you parallelize, per-worker rates must SUM to
+# under these values. The gate enforces: masscan_max_rate 1..10000 (warns above
+# 2000), nmap_timing T0..T4 (T4 warns), parallel_workers 1..16, and
+# nmap_min_rate x parallel_workers <= masscan_max_rate.
+rate:
+  masscan_max_rate: 1000          # packets/sec, total across all workers
+  nmap_timing: "T3"               # T2 (quiet) .. T4 (faster, noisier)
+  nmap_min_rate: null             # optional per-worker floor; null = let nmap decide
+  parallel_workers: 4             # local nmap worker pool size
+  passive_api_qps: 1              # cap for crt.sh / passive sources
+  # Required ONLY to go above 10000 pkt/s or use T5. Record where the client
+  # approved it (e.g. "RoE section 4.2, signed 2026-06-20"); it is echoed in the gate output.
+  high_rate_approval: ""
+
+# --- Scan profile -------------------------------------------------------------
+scan:
+  # Ports for the masscan breadth pass. "external-default" = a curated set of
+  # 115 external-facing TCP ports (see EXTERNAL_DEFAULT_PORTS in
+  # scripts/scope_gate.py). Or give an explicit spec: "80,443,8000-8100".
+  # Time is (IPs x ports) / masscan_max_rate: a full "1-65535" sweep of one /24
+  # at 1000 pkt/s takes ~4.7h, and a /16 takes ~50 days. The gate prints this
+  # estimate and FAILS if the pass can't finish inside the engagement window.
+  ports: "external-default"
+  # top_ports is used for the FALLBACK nmap passes — hosts with no masscan hit
+  # (e.g. CDN-fronted) and the CDN-reconciliation pass. The main confirmation
+  # pass scans only the candidate ports masscan already found, not this list.
+  top_ports: 1000
+  full_range_on: []               # optional high-value hosts to sweep 1-65535 (counted in the estimate)
+  # UDP pass (Phase 4, needs root): nmap -sU with its protocol payloads only —
+  # no version probes, no SNMP community guessing. Counted in the estimate.
+  udp: true
+  udp_ports: "53,123,161,500,1194,4500,51820"   # DNS, NTP, SNMP, IKE, OpenVPN, NAT-T, WireGuard
+  # Hard safety rails — do not change without re-confirming authorization.
+  allow_vuln_scripts: false       # MUST stay false (no --script vuln)
+  allow_intrusive_nse: false      # MUST stay false (no intrusive/exploit NSE)
+
+# --- Contact with THIRD-PARTY hosts --------------------------------------------
+lookalike:
+  # Phase 2: one HTTP GET per registered lookalike domain (third-party, often
+  # attacker, infrastructure). Leave false unless the RoE permits contacting
+  # third parties. Also requires the gate to pass.
+  live_probe: false
+takeover:
+  # Phase 3: one GET to each CNAME'd client hostname to match the provider's
+  # "unclaimed" page (lands on the provider). Gated. Set false to keep Phase 3
+  # DNS-only.
+  http_fingerprint: true
+
+# --- Optional integrations ----------------------------------------------------
+integrations:
+  shodan_api_key_env: "SHODAN_API_KEY"     # read from env; never inline keys here
+  censys_api_id_env: "CENSYS_API_ID"
+  censys_api_secret_env: "CENSYS_API_SECRET"
+  # Optional incremental mode: path to an asset-delta feed (scope-gated targets).
+  intel_delta_path: null
+  # Optional prioritization feed (ranking only — never selects scan targets).
+  prioritization_feed_path: null
+
+# --- Output -------------------------------------------------------------------
+output:
+  # Timestamped subdir per run. Keep this on an ENCRYPTED volume: it holds client
+  # asset data. Files are created owner-only (0600/0700) and a .gitignore is
+  # dropped in this directory so runs never get committed.
+  dir: "./runs"
+  formats: ["markdown", "json", "csv"]
+  # Days after the engagement window ends by which run data must be deleted
+  # (per contract). The report header prints the deadline.
+  retention_days: 90

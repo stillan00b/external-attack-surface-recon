@@ -1,0 +1,152 @@
+{
+  "_meta": {
+    "purpose": "Service fingerprints for Phase 3 subdomain-takeover CANDIDATE detection. A match means a dangling CNAME is pointing at a service whose resource appears unclaimed — it is a SIGNAL, never proof. Every match is reported as a candidate requiring manual, in-scope validation; the skill never auto-claims a resource.",
+    "canonical_source": "https://github.com/EdOverflow/can-i-take-over-xyz",
+    "usage_note": "Provider reclamation policies change frequently. Treat this file as a starting set and reconcile against can-i-take-over-xyz and a maintained scanner (subzy / dnsReaper / nuclei takeover templates) before relying on a 'status'. Prefer those tools' built-in signatures for breadth; this file documents the high-signal cases and their caveats.",
+    "status_values": {
+      "vulnerable": "Service is commonly claimable when the fingerprint shows and the DNS record dangles.",
+      "edge": "Takeover possible only under specific conditions, or provider has partial mitigations (e.g. domain-verification TXT). Validate carefully; high false-positive risk.",
+      "not_currently": "Historically vulnerable but provider mitigations now generally prevent takeover. Kept for awareness; expect false positives, do not report without strong proof."
+    },
+    "fingerprint_caveat": "A fingerprint string is a strong hint, not confirmation. Always confirm the dangling CNAME (dig CNAME <host>) AND that the backing resource is genuinely registrable before reporting. Some providers (Fastly, AWS) use Host-header virtual hosting, so a generic error page is not always a takeover.",
+    "last_reviewed": "2026-06"
+  },
+  "signatures": [
+    {
+      "service": "GitHub Pages",
+      "cname_patterns": ["github.io"],
+      "fingerprints": ["There isn't a GitHub Pages site here.", "For root URLs (like http://example.com/) you must provide an index.html file"],
+      "http_status_hint": 404,
+      "status": "not_currently",
+      "notes": "Takeover now requires registering an account whose username matches the target's <username>.github.io subdomain, which is rarely available. Treat matches as low-probability and validate the username is actually claimable before reporting."
+    },
+    {
+      "service": "Heroku",
+      "cname_patterns": ["herokuapp.com", "herokudns.com", "herokussl.com"],
+      "fingerprints": ["No such app", "There's nothing here, yet."],
+      "http_status_hint": 404,
+      "status": "edge",
+      "notes": "Heroku added protections; takeover depends on the app name being re-registrable. Confirm the app name is free in Heroku before reporting."
+    },
+    {
+      "service": "AWS S3",
+      "cname_patterns": ["s3.amazonaws.com", "s3-website", ".s3.", "amazonaws.com"],
+      "fingerprints": ["The specified bucket does not exist", "NoSuchBucket"],
+      "http_status_hint": 404,
+      "status": "vulnerable",
+      "notes": "Classic case. The bucket name must be globally re-creatable in S3. Note the supply-chain angle: a reclaimed bucket that previously served JS/assets referenced by pipelines can become a supply-chain vector — flag these higher. Bucket names are region-global; verify availability."
+    },
+    {
+      "service": "Fastly",
+      "cname_patterns": ["fastly.net", "fastlylb.net"],
+      "fingerprints": ["Fastly error: unknown domain", "Please check that this domain has been added to a service"],
+      "http_status_hint": null,
+      "status": "edge",
+      "notes": "Fastly uses Host-header virtual hosting, so the error alone is not proof — many live sites can momentarily show it. Confirm the domain can actually be added to an attacker-controlled Fastly service."
+    },
+    {
+      "service": "Azure (various)",
+      "cname_patterns": ["azurewebsites.net", "cloudapp.net", "cloudapp.azure.com", "trafficmanager.net", "blob.core.windows.net", "azureedge.net", "azure-api.net", "azurecontainer.io", "azurefd.net"],
+      "fingerprints": ["404 Web Site not found", "The specified blob does not exist", "Error 404 - Web app not found"],
+      "http_status_hint": 404,
+      "status": "edge",
+      "notes": "Azure supports domain-verification TXT records (asuid.<sub> TXT) that, if the org left them in place, BLOCK takeover even on a dangling CNAME. Check for the asuid TXT before reporting. Subdominator/baddns are stronger than generic scanners for Azure surfaces."
+    },
+    {
+      "service": "Shopify",
+      "cname_patterns": ["myshopify.com"],
+      "fingerprints": ["Sorry, this shop is currently unavailable", "Only one step left!"],
+      "http_status_hint": 404,
+      "status": "edge",
+      "notes": "Shopify added DNS-verification mitigations; takeover often requires the store slug to be re-registrable and may need support interaction. Validate carefully."
+    },
+    {
+      "service": "Surge.sh",
+      "cname_patterns": ["surge.sh"],
+      "fingerprints": ["project not found"],
+      "http_status_hint": 404,
+      "status": "vulnerable",
+      "notes": "Project name re-registrable via surge CLI. Confirm the project name is free."
+    },
+    {
+      "service": "Bitbucket",
+      "cname_patterns": ["bitbucket.io"],
+      "fingerprints": ["Repository not found"],
+      "http_status_hint": 404,
+      "status": "vulnerable",
+      "notes": "Confirm the corresponding Bitbucket repo/workspace is registrable."
+    },
+    {
+      "service": "Ghost",
+      "cname_patterns": ["ghost.io"],
+      "fingerprints": ["The thing you were looking for is no longer here, or never was"],
+      "http_status_hint": 404,
+      "status": "edge",
+      "notes": "Subdomain must be re-creatable on Ghost(Pro). Validate availability."
+    },
+    {
+      "service": "Tilda",
+      "cname_patterns": ["tilda.ws"],
+      "fingerprints": ["Please renew your subscription", "Domain has been assigned"],
+      "http_status_hint": null,
+      "status": "edge",
+      "notes": "Validate that the project domain can be claimed in a Tilda account."
+    },
+    {
+      "service": "Unbounce",
+      "cname_patterns": ["unbouncepages.com"],
+      "fingerprints": ["The requested URL was not found on this server", "Domain not found"],
+      "http_status_hint": 404,
+      "status": "edge",
+      "notes": "Validate the page/domain can be re-added in Unbounce."
+    },
+    {
+      "service": "Webflow",
+      "cname_patterns": ["proxy.webflow.com", "proxy-ssl.webflow.com", "webflow.io"],
+      "fingerprints": ["The page you are looking for doesn't exist or has been moved"],
+      "http_status_hint": 404,
+      "status": "edge",
+      "notes": "Generic error string — high false-positive risk. Confirm the custom domain is addable in a Webflow project before reporting."
+    },
+    {
+      "service": "Pantheon",
+      "cname_patterns": ["pantheonsite.io"],
+      "fingerprints": ["The gods are wise, but do not know of the site which you seek", "404 error unknown site"],
+      "http_status_hint": 404,
+      "status": "vulnerable",
+      "notes": "Confirm the site name is registrable on Pantheon."
+    },
+    {
+      "service": "Wordpress.com",
+      "cname_patterns": ["wordpress.com"],
+      "fingerprints": ["Do you want to register"],
+      "http_status_hint": null,
+      "status": "edge",
+      "notes": "Validate the target subdomain/site is re-registrable."
+    },
+    {
+      "service": "Help Scout",
+      "cname_patterns": ["helpscoutdocs.com"],
+      "fingerprints": ["No settings were found for this company"],
+      "http_status_hint": 404,
+      "status": "edge",
+      "notes": "Validate the docs site can be claimed."
+    },
+    {
+      "service": "Cargo Collective",
+      "cname_patterns": ["cargocollective.com"],
+      "fingerprints": ["404 Not Found", "If you're moving your domain away from Cargo"],
+      "http_status_hint": 404,
+      "status": "edge",
+      "notes": "Generic 404 — corroborate with the Cargo-specific string and registrability."
+    },
+    {
+      "service": "Netlify",
+      "cname_patterns": ["netlify.app", "netlify.com"],
+      "fingerprints": ["Not Found - Request ID", "Not found"],
+      "http_status_hint": 404,
+      "status": "edge",
+      "notes": "Netlify has mitigations; takeover requires the site name to be free and added to an attacker site. High false-positive risk on generic strings — validate."
+    }
+  ]
+}

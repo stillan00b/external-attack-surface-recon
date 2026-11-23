@@ -1,0 +1,8 @@
+# Real engagement files hold client data — never commit them.
+scope.yaml
+*.scope.yaml
+runs/
+STOP
+# Python
+__pycache__/
+*.pyc
